@@ -4,8 +4,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import app, AnalyzeRequest, rules_review
+from operations import principal
 
 client = TestClient(app)
+
+@pytest.fixture(autouse=True)
+def auth_override():
+    app.dependency_overrides[principal] = lambda: "offline-test-user"
+    yield
+    app.dependency_overrides.clear()
+
 
 
 def test_dashboard_and_health(monkeypatch):
@@ -57,7 +65,7 @@ def test_paypal_requires_server_side_credentials(monkeypatch):
     assert "sandbox" in response.json()["detail"].lower()
     monkeypatch.setenv("ENABLE_SANDBOX_CAPTURE", "true")
     response = client.post("/api/paypal/orders/FAKE-ORDER/capture")
-    assert response.status_code == 503
+    assert response.status_code == 501
 
 
 @pytest.mark.parametrize("amount", ["0.001", "-1.00", "1e5", "abc"])
@@ -90,3 +98,10 @@ def test_reject_live_paypal_host(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         paypal_sandbox_base_url()
     assert exc.value.status_code == 503
+
+def test_endpoints_require_identity():
+    app.dependency_overrides.clear()
+    payload = {"reference":"PL-001","amount":100,"currency":"USD","counterparty":"Example","corridor":"Nairobi-Arusha"}
+    assert client.post("/api/ai/analyze",json=payload).status_code == 401
+    assert client.post("/api/paypal/orders",json={"reference":"X","amount":"5","description":"Test"}).status_code == 401
+    assert client.post("/api/paypal/orders/ABC123/capture").status_code == 401
