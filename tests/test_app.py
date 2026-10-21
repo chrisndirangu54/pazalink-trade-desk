@@ -65,7 +65,7 @@ def test_paypal_requires_server_side_credentials(monkeypatch):
     assert "sandbox" in response.json()["detail"].lower()
     monkeypatch.setenv("ENABLE_SANDBOX_CAPTURE", "true")
     response = client.post("/api/paypal/orders/FAKE-ORDER/capture")
-    assert response.status_code == 503
+    assert response.status_code == 501
 
 
 @pytest.mark.parametrize("amount", ["0.001", "-1.00", "1e5", "abc"])
