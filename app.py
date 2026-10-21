@@ -41,6 +41,17 @@ async def index() -> FileResponse:
     return FileResponse("static/index.html")
 
 
+@app.get("/api/firebase-config")
+async def firebase_client_config() -> dict[str, str]:
+    """Firebase web identifiers are public; service-account credentials are not."""
+    return {
+        "apiKey": os.getenv("FIREBASE_API_KEY", ""),
+        "authDomain": os.getenv("FIREBASE_AUTH_DOMAIN", ""),
+        "projectId": os.getenv("FIREBASE_PROJECT_ID", ""),
+        "appId": os.getenv("FIREBASE_APP_ID", ""),
+    }
+
+
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
     return {
@@ -169,20 +180,4 @@ async def capture_paypal_order(order_id: str, user: str = Depends(principal)) ->
         raise HTTPException(status_code=403, detail="Sandbox capture is disabled by default; enable only for controlled tests.")
     if not re.fullmatch(r"[A-Za-z0-9-]{1,80}", order_id):
         raise HTTPException(status_code=422, detail="Invalid order ID.")
-    raise HTTPException(status_code=501, detail="Capture requires order ownership, buyer approval and verified webhook integration; disabled.")
-    # Previously available capture implementation removed from publicly reachable flow.
-    if not os.getenv("PAYPAL_CLIENT_ID") or not os.getenv("PAYPAL_CLIENT_SECRET"):
-        raise HTTPException(status_code=503, detail="PayPal sandbox credentials are not configured on the server.")
-    base = paypal_sandbox_base_url()
-    try:
-        async with httpx.AsyncClient(timeout=25) as client:
-            token = await paypal_access_token(client)
-            response = await client.post(
-                f"{base}/v2/checkout/orders/{order_id}/capture",
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            if response.is_error:
-                raise HTTPException(status_code=502, detail="PayPal sandbox capture failed.")
-            return response.json()
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="Could not reach PayPal sandbox.") from exc
+    raise HTTPException(status_code=501, detail="Capture is disabled until ownership and buyer approval checks are implemented.")
