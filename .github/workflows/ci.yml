@@ -18,4 +18,4 @@ jobs:
       - name: Compile Python
         run: python -m compileall -q app.py tests
       - name: Run isolated tests
-        run: pytest -q
+        run: python -m pytest -q
