@@ -15,12 +15,14 @@
   <main class="shell">
     <header class="top">
       <div class="brand"><div class="mark">P</div><div><strong>PazaLink <span class="tagline">TRADE DESK</span></strong><small>Payments and settlement review</small></div></div>
-      <div class="right"><span id="ai-pill" class="pill">AI: checking</span><span id="paypal-pill" class="pill">PayPal sandbox: checking</span><div class="avatar">CN</div></div>
+      <div class="right"><span id="ai-pill" class="pill">AI: checking</span><span id="paypal-pill" class="pill">PayPal sandbox: checking</span><button class="quiet" id="sign-in-btn" type="button">Sign in</button><button class="quiet" id="sign-out-btn" type="button" hidden>Sign out</button><div class="avatar">P</div></div>
     </header>
     <section class="intro">
       <div><div class="eyebrow">Cross-border trade operations</div><h1>Know what needs attention<br/>before money moves.</h1><p>Review incoming payments, match invoices and ask a cautious AI assistant to surface reconciliation checks. Payment actions stay under human control.</p></div>
       <button class="primary" id="connect-btn">Connect PayPal sandbox</button>
     </section>
+    <section id="auth-banner" class="notice" role="status">Sign in with Firebase to use protected features. The sample table below is fictional.</section>
+    <section class="card panel" id="invoice-controls" style="margin-top:16px"><div class="panel-head"><div><h2>My Firebase invoices</h2><p>Authenticated, owner-scoped Firestore records</p></div><button class="secondary" id="refresh-invoices">Refresh</button></div><form id="invoice-form" style="display:flex;flex-wrap:wrap;gap:8px"><input required name="counterparty" placeholder="Counterparty" maxlength="120"/><input required name="amount" type="number" min=".01" step=".01" placeholder="Amount (USD)"/><input required name="corridor" placeholder="Corridor" maxlength="100"/><button class="primary" type="submit">Create demo invoice</button></form><div id="my-invoices" class="note">Sign in to view your invoices.</div></section>
     <div class="notice">Prototype workspace. The entries below are fictional sample data. No live payments are enabled.</div>
     <section class="kpis" aria-label="Payment overview" style="margin-top:16px">
       <article class="card metric"><label>Open invoices</label><strong>18</strong><span class="trend">6 need review</span></article>
@@ -47,7 +49,61 @@
   </main>
   <div class="toast" id="toast" role="status"></div>
   <div class="modal-backdrop" id="modal"><div class="modal"><h2>PayPal sandbox connection</h2><p>Credentials are configured on the server in the real demo. This public UI cannot store or transmit secrets. The order action will remain unavailable until the server is configured.</p><label>Sandbox status</label><input value="Server configuration required" disabled/><div class="modal-actions"><button class="quiet" id="modal-close">Close</button></div></div></div>
-  <script>
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
+    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
+    let currentUser = null, firebaseAuth = null;
+    const authBanner = document.querySelector('#auth-banner');
+    const authConfig = await fetch('/api/firebase-config').then(r=>r.ok?r.json():null).catch(()=>null);
+    if (authConfig?.apiKey && authConfig?.projectId && authConfig?.authDomain && authConfig?.appId) {
+      firebaseAuth = getAuth(initializeApp(authConfig));
+      onAuthStateChanged(firebaseAuth, async user => {
+        currentUser = user;
+        document.querySelector('#sign-in-btn').hidden=!!user;
+        document.querySelector('#sign-out-btn').hidden=!user;
+        authBanner.textContent=user?`Signed in: ${user.email||user.uid}. Demo financial operations only.`:'Sign in to access protected features.';
+        document.querySelector('#analyze-btn').disabled=!user;
+        if(user) await loadInvoices(); else document.querySelector('#my-invoices').textContent='Sign in to view your invoices.';
+      });
+      document.querySelector('#sign-in-btn').onclick=async()=>{
+        try { await signInWithPopup(firebaseAuth,new GoogleAuthProvider()); }
+        catch(e){authBanner.textContent='Sign-in failed: '+e.message;}
+      };
+      document.querySelector('#sign-out-btn').onclick=()=>signOut(firebaseAuth);
+    } else {
+      document.querySelector('#sign-in-btn').disabled=true;
+      authBanner.textContent='Firebase frontend configuration missing. Set FIREBASE_API_KEY, FIREBASE_AUTH_DOMAIN and FIREBASE_APP_ID on the server.';
+    }
+    async function securedFetch(path, options={}) {
+      if(!currentUser)throw Error('Sign in first');
+      const token=await currentUser.getIdToken();
+      const headers={...options.headers,Authorization:'Bearer '+token};
+      return fetch(path,{...options,headers});
+    }
+    async function loadInvoices(){
+      const out=document.querySelector('#my-invoices');
+      try {
+        const r=await securedFetch('/api/ops/invoices');const d=await r.json();
+        if(!r.ok)throw Error(d.detail||'Invoice list unavailable');
+        out.replaceChildren();
+        if(!d.items.length){out.textContent='No demo invoices yet.';return;}
+        for(const i of d.items){
+          const p=document.createElement('p');
+          p.textContent=`${i.id}: ${i.counterparty} | ${i.amount} ${i.currency} | ${i.status} (demo)`;
+          out.append(p);
+        }
+      } catch(e){out.textContent='Could not load invoices: '+e.message;}
+    }
+    document.querySelector('#refresh-invoices').onclick=loadInvoices;
+    document.querySelector('#invoice-form').addEventListener('submit',async e=>{
+      e.preventDefault();const form=e.currentTarget,fd=new FormData(form);
+      try{
+        const r=await securedFetch('/api/ops/invoices',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({counterparty:fd.get('counterparty'),amount:String(fd.get('amount')),currency:'USD',corridor:fd.get('corridor')})});
+        const d=await r.json();if(!r.ok)throw Error(d.detail||'Could not create demo invoice');
+        form.reset();await loadInvoices();
+      }catch(err){authBanner.textContent='Invoice error: '+err.message;}
+    });
     const transactions=[
       {ref:'PL-2048',name:'Amani Textiles',route:'Nairobi → Kampala',amount:'$1,240.00',currency:'USD',status:'Needs review',cls:'review',note:'Supplier invoice PL-2048. Beneficiary bank details were updated by email; confirm using the phone number on file.'},
       {ref:'PL-2047',name:'Kijiji Foods Ltd',route:'Nairobi → Arusha',amount:'$860.00',currency:'USD',status:'Matched',cls:'',note:'Invoice and payment reference match.'},
@@ -62,12 +118,13 @@
     render();document.querySelector('#search').addEventListener('input',()=>render(filter()));
     const toast=(msg)=>{const el=document.querySelector('#toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),3800)};
     async function health(){try{const h=await fetch('/api/health').then(r=>r.json());const ai=document.querySelector('#ai-pill'),pp=document.querySelector('#paypal-pill');ai.textContent=h.nebius_configured?`AI: ${h.nebius_model}`:'AI: local demo rules';ai.className=`pill ${h.nebius_configured?'live':''}`;pp.textContent=h.paypal_sandbox_configured?'PayPal sandbox: connected':'PayPal sandbox: not configured';pp.className=`pill ${h.paypal_sandbox_configured?'live':''}`;document.querySelector('#provider').textContent=h.nebius_configured?`Model path: Nebius Token Factory · ${h.nebius_model}`:'Local rules demo active; no language model was called.';document.querySelector('#order-btn').classList.toggle('disabled',!h.paypal_sandbox_configured);document.querySelector('#order-btn').setAttribute('aria-disabled',String(!h.paypal_sandbox_configured))}catch{document.querySelector('#provider').textContent='Server unavailable; open this app through the FastAPI server.'}}
+    document.querySelector('#analyze-btn').disabled=true;
     health();
     document.querySelector('#connect-btn').addEventListener('click',()=>document.querySelector('#modal').classList.add('show'));
     document.querySelector('#modal-close').addEventListener('click',()=>document.querySelector('#modal').classList.remove('show'));
     document.querySelector('#modal').addEventListener('click',e=>{if(e.target.id==='modal')e.currentTarget.classList.remove('show')});
-    document.querySelector('#analyze-btn').addEventListener('click',async()=>{const out=document.querySelector('#analysis'),btn=document.querySelector('#analyze-btn');btn.disabled=true;btn.textContent='Reviewing…';out.textContent='Checking the selected record…';try{const res=await fetch('/api/ai/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference:selected.ref,amount:Number(selected.amount.replace(/[^0-9.]/g,'')),currency:selected.currency,counterparty:selected.name,corridor:selected.route,note:selected.note})});const data=await res.json();if(!res.ok)throw new Error(data.detail||'Analysis unavailable');out.textContent=data.analysis||`${data.summary}\n\nChecks:\n• ${(data.checks||[]).join('\n• ')}\n\nSuggested action: ${data.suggested_action}\n\n${data.disclaimer||''}`;document.querySelector('#provider').textContent=data.provider==='nebius-token-factory'?`Live model response · ${data.model}`:'Local demo rules active; no language model was called.'}catch(e){out.textContent=`Review unavailable: ${e.message}\nNo action was taken.`}finally{btn.disabled=false;btn.textContent='Review selected transaction'}});
-    document.querySelector('#order-btn').addEventListener('click',async()=>{const btn=document.querySelector('#order-btn');if(btn.getAttribute('aria-disabled')==='true'){toast('Sandbox server credentials are not configured. No order was created.');return}btn.disabled=true;try{const r=await fetch('/api/paypal/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference:selected.ref,amount:Number(selected.amount.replace(/[^0-9.]/g,'')).toFixed(2),description:`PazaLink sample invoice ${selected.ref}`})});const d=await r.json();if(!r.ok)throw new Error(d.detail);document.querySelector('#order-result').textContent=`Sandbox order ${d.id} created (${d.status}). Continue only in PayPal's sandbox approval flow.`}catch(e){document.querySelector('#order-result').textContent=`Sandbox order not created: ${e.message}`}finally{btn.disabled=false}});
+    document.querySelector('#analyze-btn').addEventListener('click',async()=>{const out=document.querySelector('#analysis'),btn=document.querySelector('#analyze-btn');btn.disabled=true;btn.textContent='Reviewing…';out.textContent='Checking the selected record…';try{const res=await securedFetch('/api/ai/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference:selected.ref,amount:Number(selected.amount.replace(/[^0-9.]/g,'')),currency:selected.currency,counterparty:selected.name,corridor:selected.route,note:selected.note})});const data=await res.json();if(!res.ok)throw new Error(data.detail||'Analysis unavailable');out.textContent=data.analysis||`${data.summary}\n\nChecks:\n• ${(data.checks||[]).join('\n• ')}\n\nSuggested action: ${data.suggested_action}\n\n${data.disclaimer||''}`;document.querySelector('#provider').textContent=data.provider==='nebius-token-factory'?`Live model response · ${data.model}`:'Local demo rules active; no language model was called.'}catch(e){out.textContent=`Review unavailable: ${e.message}\nNo action was taken.`}finally{btn.disabled=false;btn.textContent='Review selected transaction'}});
+    document.querySelector('#order-btn').addEventListener('click',async()=>{const btn=document.querySelector('#order-btn');if(btn.getAttribute('aria-disabled')==='true'){toast('Sandbox server credentials are not configured. No order was created.');return}btn.disabled=true;try{const r=await securedFetch('/api/paypal/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference:selected.ref,amount:Number(selected.amount.replace(/[^0-9.]/g,'')).toFixed(2),description:`PazaLink sample invoice ${selected.ref}`})});const d=await r.json();if(!r.ok)throw new Error(d.detail);document.querySelector('#order-result').textContent=`Sandbox order ${d.id} created (${d.status}). Continue only in PayPal's sandbox approval flow.`}catch(e){document.querySelector('#order-result').textContent=`Sandbox order not created: ${e.message}`}finally{btn.disabled=false}});
   </script>
 </body>
 </html>
