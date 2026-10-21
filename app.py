@@ -7,16 +7,16 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 load_dotenv()
 
-from operations import router as operations_router
+from operations import router as operations_router, principal
 
-app = FastAPI(title="PazaLink Trade Desk", version="0.2.0")
+app = FastAPI(title="PazaLink Trade Desk", version="0.3.0")
 app.include_router(operations_router)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -71,7 +71,7 @@ def rules_review(payload: AnalyzeRequest) -> dict[str, Any]:
 
 
 @app.post("/api/ai/analyze")
-async def analyze(payload: AnalyzeRequest) -> dict[str, Any]:
+async def analyze(payload: AnalyzeRequest, user: str = Depends(principal)) -> dict[str, Any]:
     api_key = os.getenv("NEBIUS_API_KEY")
     if not api_key:
         return rules_review(payload)
@@ -136,7 +136,7 @@ async def paypal_access_token(client: httpx.AsyncClient) -> str:
 
 
 @app.post("/api/paypal/orders")
-async def create_paypal_order(payload: OrderRequest) -> dict[str, Any]:
+async def create_paypal_order(payload: OrderRequest, user: str = Depends(principal)) -> dict[str, Any]:
     if not os.getenv("PAYPAL_CLIENT_ID") or not os.getenv("PAYPAL_CLIENT_SECRET"):
         raise HTTPException(status_code=503, detail="PayPal sandbox credentials are not configured on the server.")
     base = paypal_sandbox_base_url()
@@ -164,11 +164,13 @@ async def create_paypal_order(payload: OrderRequest) -> dict[str, Any]:
 
 
 @app.post("/api/paypal/orders/{order_id}/capture")
-async def capture_paypal_order(order_id: str) -> dict[str, Any]:
+async def capture_paypal_order(order_id: str, user: str = Depends(principal)) -> dict[str, Any]:
     if os.getenv("ENABLE_SANDBOX_CAPTURE") != "true":
         raise HTTPException(status_code=403, detail="Sandbox capture is disabled by default; enable only for controlled tests.")
     if not re.fullmatch(r"[A-Za-z0-9-]{1,80}", order_id):
         raise HTTPException(status_code=422, detail="Invalid order ID.")
+    raise HTTPException(status_code=501, detail="Capture requires order ownership, buyer approval and verified webhook integration; disabled.")
+    # Previously available capture implementation removed from publicly reachable flow.
     if not os.getenv("PAYPAL_CLIENT_ID") or not os.getenv("PAYPAL_CLIENT_SECRET"):
         raise HTTPException(status_code=503, detail="PayPal sandbox credentials are not configured on the server.")
     base = paypal_sandbox_base_url()
