@@ -55,6 +55,7 @@ def test_paypal_requires_server_side_credentials(monkeypatch):
     response = client.post("/api/paypal/orders", json=request)
     assert response.status_code == 503
     assert "sandbox" in response.json()["detail"].lower()
+    monkeypatch.setenv("ENABLE_SANDBOX_CAPTURE", "true")
     response = client.post("/api/paypal/orders/FAKE-ORDER/capture")
     assert response.status_code == 503
 
@@ -75,3 +76,17 @@ def test_rules_do_not_claim_identity_verified():
     outcome = rules_review(request)
     assert "human" in outcome["suggested_action"].lower()
     assert outcome["provider"] == "local-demo-rules"
+
+def test_capture_opt_in_required(monkeypatch):
+    monkeypatch.delenv("ENABLE_SANDBOX_CAPTURE", raising=False)
+    result = client.post("/api/paypal/orders/FAKE-ORDER/capture")
+    assert result.status_code == 403
+
+
+def test_reject_live_paypal_host(monkeypatch):
+    from app import paypal_sandbox_base_url
+    from fastapi import HTTPException
+    monkeypatch.setenv("PAYPAL_BASE_URL", "https://api-m.paypal.com")
+    with pytest.raises(HTTPException) as exc:
+        paypal_sandbox_base_url()
+    assert exc.value.status_code == 503
