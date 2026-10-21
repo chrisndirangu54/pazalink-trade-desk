@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import re
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -40,6 +42,7 @@ async def index() -> FileResponse:
 async def health() -> dict[str, Any]:
     return {
         "paypal_sandbox_configured": bool(os.getenv("PAYPAL_CLIENT_ID") and os.getenv("PAYPAL_CLIENT_SECRET")),
+        "sandbox_capture_enabled": os.getenv("ENABLE_SANDBOX_CAPTURE") == "true",
         "nebius_configured": bool(os.getenv("NEBIUS_API_KEY")),
         "nebius_model": os.getenv("NEBIUS_MODEL", "nvidia/nvidia-nemotron-3-nano-30b-a3b"),
     }
@@ -104,12 +107,20 @@ async def analyze(payload: AnalyzeRequest) -> dict[str, Any]:
         raise HTTPException(status_code=502, detail=f"Nebius model request failed: {type(exc).__name__}") from exc
 
 
+def paypal_sandbox_base_url() -> str:
+    """Only PayPal's sandbox host is permitted, even when misconfigured."""
+    value = os.getenv("PAYPAL_BASE_URL", "https://api-m.sandbox.paypal.com").rstrip("/")
+    if value != "https://api-m.sandbox.paypal.com":
+        raise HTTPException(status_code=503, detail="Only the official PayPal sandbox API endpoint is permitted.")
+    return value
+
+
 async def paypal_access_token(client: httpx.AsyncClient) -> str:
     client_id = os.getenv("PAYPAL_CLIENT_ID")
     secret = os.getenv("PAYPAL_CLIENT_SECRET")
     if not client_id or not secret:
         raise HTTPException(status_code=503, detail="PayPal sandbox credentials are not configured on the server.")
-    base = os.getenv("PAYPAL_BASE_URL", "https://api-m.sandbox.paypal.com").rstrip("/")
+    base = paypal_sandbox_base_url()
     response = await client.post(
         f"{base}/v1/oauth2/token",
         auth=(client_id, secret),
@@ -125,7 +136,7 @@ async def paypal_access_token(client: httpx.AsyncClient) -> str:
 async def create_paypal_order(payload: OrderRequest) -> dict[str, Any]:
     if not os.getenv("PAYPAL_CLIENT_ID") or not os.getenv("PAYPAL_CLIENT_SECRET"):
         raise HTTPException(status_code=503, detail="PayPal sandbox credentials are not configured on the server.")
-    base = os.getenv("PAYPAL_BASE_URL", "https://api-m.sandbox.paypal.com").rstrip("/")
+    base = paypal_sandbox_base_url()
     try:
         async with httpx.AsyncClient(timeout=25) as client:
             token = await paypal_access_token(client)
@@ -151,11 +162,13 @@ async def create_paypal_order(payload: OrderRequest) -> dict[str, Any]:
 
 @app.post("/api/paypal/orders/{order_id}/capture")
 async def capture_paypal_order(order_id: str) -> dict[str, Any]:
-    if not order_id or len(order_id) > 80:
+    if os.getenv("ENABLE_SANDBOX_CAPTURE") != "true":
+        raise HTTPException(status_code=403, detail="Sandbox capture is disabled by default; enable only for controlled tests.")
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,80}", order_id):
         raise HTTPException(status_code=422, detail="Invalid order ID.")
     if not os.getenv("PAYPAL_CLIENT_ID") or not os.getenv("PAYPAL_CLIENT_SECRET"):
         raise HTTPException(status_code=503, detail="PayPal sandbox credentials are not configured on the server.")
-    base = os.getenv("PAYPAL_BASE_URL", "https://api-m.sandbox.paypal.com").rstrip("/")
+    base = paypal_sandbox_base_url()
     try:
         async with httpx.AsyncClient(timeout=25) as client:
             token = await paypal_access_token(client)
