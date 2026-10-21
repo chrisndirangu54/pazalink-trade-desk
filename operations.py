@@ -1,81 +1,51 @@
-"""Sandbox-only persistent operations API; never a system of record for real money."""
+"""Firebase-backed, tenant-isolated DEMO invoice operations (not a payment ledger)."""
 from __future__ import annotations
 
-import hashlib
-import hmac
-import json
 import os
 import re
 import secrets
-import sqlite3
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
-from pathlib import Path
 
+import firebase_admin
+from firebase_admin import auth, firestore
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/ops", tags=["sandbox-operations"])
+ALLOWED = {
+    "draft": {"review"},
+    "review": {"approved", "rejected"},
+    "approved": {"sandbox-paid", "rejected"},
+    "rejected": set(),
+    "sandbox-paid": set(),
+}
 
 
-def database_path():
-    return os.getenv("PAZALINK_DB_PATH", "pazalink-demo.sqlite3")
+def firebase_app():
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(options={
+            "projectId": os.getenv("FIREBASE_PROJECT_ID") or None
+        })
+    return firebase_admin.get_app()
 
 
-@contextmanager
-def db():
-    conn = sqlite3.connect(database_path(), timeout=10)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=10000")
-    try:
-        conn.executescript("""
-        CREATE TABLE IF NOT EXISTS invoices (
-            id TEXT PRIMARY KEY,
-            owner TEXT NOT NULL,
-            counterparty TEXT NOT NULL,
-            amount TEXT NOT NULL,
-            currency TEXT NOT NULL,
-            corridor TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'draft',
-            created_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            owner TEXT NOT NULL,
-            invoice_id TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            detail TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(invoice_id) REFERENCES invoices(id)
-        );
-        CREATE TABLE IF NOT EXISTS notifications (
-            event_id TEXT PRIMARY KEY,
-            received_at TEXT NOT NULL
-        );
-        """)
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+def store():
+    return firestore.client(app=firebase_app())
 
 
 def principal(authorization: str | None = Header(default=None)):
-    """Static server-side user tokens for controlled testing only."""
-    raw = os.getenv("PAZALINK_DEMO_TOKENS", "")
-    # comma-separated user:token pairs; never expose this config to browsers
-    identities = [x.partition(":") for x in raw.split(",") if ":" in x]
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Bearer token required")
-    provided = authorization[7:]
-    for user, _, token in identities:
-        if user and len(token) >= 24 and hmac.compare_digest(provided, token):
-            return user
-    raise HTTPException(401, "Invalid bearer token")
+        raise HTTPException(401, "Firebase ID token required")
+    try:
+        decoded = auth.verify_id_token(authorization[7:], app=firebase_app(), check_revoked=True)
+        return decoded["uid"]
+    except (ValueError, KeyError, firebase_admin.exceptions.FirebaseError) as exc:
+        raise HTTPException(401, "Invalid or revoked Firebase ID token") from exc
+
+
+def invoices(user):
+    return store().collection("pazalink_users").document(user).collection("invoices")
 
 
 class InvoiceCreate(BaseModel):
@@ -94,80 +64,73 @@ class Transition(BaseModel):
 def create_invoice(payload: InvoiceCreate, user: str = Depends(principal)):
     identifier = "PL-" + secrets.token_hex(8).upper()
     stamp = datetime.now(timezone.utc).isoformat()
-    with db() as conn:
-        conn.execute(
-            "INSERT INTO invoices VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (identifier, user, payload.counterparty, str(payload.amount),
-             payload.currency, payload.corridor, "draft", stamp)
-        )
-        conn.execute(
-            "INSERT INTO events(owner,invoice_id,kind,detail,created_at) VALUES(?,?,?,?,?)",
-            (user, identifier, "created", "Created fictional sandbox invoice", stamp)
-        )
+    ref = invoices(user).document(identifier)
+    data = {
+        "id": identifier, "owner": user, "counterparty": payload.counterparty,
+        "amount": str(payload.amount), "currency": payload.currency,
+        "corridor": payload.corridor, "status": "draft", "created_at": stamp,
+        "sandbox_only": True
+    }
+    batch = store().batch()
+    batch.set(ref, data)
+    batch.set(ref.collection("events").document(), {
+        "kind": "created", "detail": "Created fictional sandbox invoice", "created_at": stamp
+    })
+    batch.commit()
     return {"id": identifier, "status": "draft", "sandbox_only": True}
 
 
 @router.get("/invoices")
 def list_invoices(user: str = Depends(principal)):
-    with db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM invoices WHERE owner=? ORDER BY created_at DESC LIMIT 100", (user,)
-        ).fetchall()
-    return {"items": [dict(row) for row in rows], "sandbox_only": True}
+    rows = [doc.to_dict() for doc in invoices(user).limit(100).stream()]
+    rows.sort(key=lambda row: row["created_at"], reverse=True)
+    return {"items": rows, "sandbox_only": True}
 
 
 @router.post("/invoices/{invoice_id}/transition")
 def transition(invoice_id: str, payload: Transition, user: str = Depends(principal)):
-    with db() as conn:
-        record = conn.execute(
-            "SELECT * FROM invoices WHERE id=? AND owner=?", (invoice_id, user)
-        ).fetchone()
-        if not record:
+    if not re.fullmatch(r"PL-[A-F0-9]{16}", invoice_id):
+        raise HTTPException(404, "Invoice not found")
+    ref = invoices(user).document(invoice_id)
+    transaction = store().transaction()
+
+    @firestore.transactional
+    def update(txn):
+        snapshot = ref.get(transaction=txn)
+        if not snapshot.exists:
             raise HTTPException(404, "Invoice not found")
-        current = record["status"]
-        allowed = {
-            "draft": {"review"},
-            "review": {"approved", "rejected"},
-            "approved": {"sandbox-paid", "rejected"},
-            "rejected": set(),
-            "sandbox-paid": set()
-        }
-        if payload.status not in allowed[current]:
+        current = snapshot.to_dict()["status"]
+        if payload.status not in ALLOWED.get(current, set()):
             raise HTTPException(409, "Invalid sandbox state transition")
-        # No transition invokes PSPs. 'sandbox-paid' is a manual DEMO marker only.
-        conn.execute("UPDATE invoices SET status=? WHERE id=? AND owner=?",
-                     (payload.status, invoice_id, user))
-        conn.execute(
-            "INSERT INTO events(owner,invoice_id,kind,detail,created_at) VALUES(?,?,?,?,?)",
-            (user, invoice_id, "transition:" + payload.status, payload.reason,
-             datetime.now(timezone.utc).isoformat())
-        )
+        txn.update(ref, {"status": payload.status})
+        txn.set(ref.collection("events").document(), {
+            "kind": "transition:" + payload.status,
+            "detail": payload.reason,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    update(transaction)
     return {"id": invoice_id, "status": payload.status, "verified_payment": False}
 
 
 @router.get("/invoices/{invoice_id}/events")
 def invoice_events(invoice_id: str, user: str = Depends(principal)):
-    with db() as conn:
-        owner = conn.execute("SELECT owner FROM invoices WHERE id=?", (invoice_id,)).fetchone()
-        if not owner or owner["owner"] != user:
-            raise HTTPException(404, "Invoice not found")
-        rows = conn.execute(
-            "SELECT id,kind,detail,created_at FROM events WHERE invoice_id=? AND owner=? ORDER BY id",
-            (invoice_id, user)
-        ).fetchall()
-    return {"events": [dict(row) for row in rows]}
+    if not re.fullmatch(r"PL-[A-F0-9]{16}", invoice_id):
+        raise HTTPException(404, "Invoice not found")
+    ref = invoices(user).document(invoice_id)
+    if not ref.get().exists:
+        raise HTTPException(404, "Invoice not found")
+    data = [doc.to_dict() for doc in ref.collection("events").stream()]
+    data.sort(key=lambda item: item["created_at"])
+    return {"events": data}
 
 
 @router.get("/integrations")
 def integration_status(user: str = Depends(principal)):
     return {
-        "owner": user,
-        "paypal": "sandbox-adapter-in-app",
+        "owner": user, "paypal": "sandbox-adapter-in-app",
         "nebius": "optional-model-adapter-in-app",
-        "africas_talking": "not-connected",
-        "daraja_mpesa": "not-connected",
-        "foreign_exchange": "not-connected",
-        "escrow": "not-connected",
-        "odoo": "not-connected",
-        "production_settlement": False,
+        "africas_talking": "not-connected", "daraja_mpesa": "not-connected",
+        "foreign_exchange": "not-connected", "escrow": "not-connected",
+        "odoo": "not-connected", "production_settlement": False
     }
