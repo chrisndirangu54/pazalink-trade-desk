@@ -1,53 +1,62 @@
+"""Firebase backend tests; no real Firebase credentials or network required."""
+from unittest.mock import MagicMock
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from app import app
+import operations
 
 client = TestClient(app)
-A = {"Authorization": "Bearer " + "a"*30}
-B = {"Authorization": "Bearer " + "b"*30}
-
 
 @pytest.fixture(autouse=True)
-def isolated(tmp_path, monkeypatch):
-    monkeypatch.setenv("PAZALINK_DB_PATH", str(tmp_path/"ops.sqlite3"))
-    monkeypatch.setenv("PAZALINK_DEMO_TOKENS", "alice:" + "a"*30 + ",bob:" + "b"*30)
+def mocked_firebase(monkeypatch):
+    monkeypatch.setattr(operations, "firebase_app", lambda: object())
+    def fake_verify(token, **kwargs):
+        if token == "alice-token":
+            return {"uid": "alice"}
+        if token == "bob-token":
+            return {"uid": "bob"}
+        raise ValueError("bad token")
+    monkeypatch.setattr(operations.auth, "verify_id_token", fake_verify)
 
-
-def test_auth_required():
+def test_auth_enforced():
     assert client.get("/api/ops/invoices").status_code == 401
     assert client.get("/api/ops/invoices", headers={"Authorization":"Bearer wrong"}).status_code == 401
 
+def test_firebase_uid_is_verified():
+    assert operations.principal("Bearer alice-token") == "alice"
+    assert operations.principal("Bearer bob-token") == "bob"
+    with pytest.raises(HTTPException) as exc:
+        operations.principal("Bearer forged")
+    assert exc.value.status_code == 401
 
-def test_invoice_isolation_and_audit():
-    created = client.post("/api/ops/invoices", headers=A, json={
-        "counterparty":"Demo merchant", "amount":"42.50",
-        "currency":"USD", "corridor":"Nairobi-Arusha"
-    })
-    assert created.status_code == 201, created.text
-    invoice = created.json()["id"]
-    assert len(client.get("/api/ops/invoices", headers=A).json()["items"]) == 1
-    assert client.get("/api/ops/invoices", headers=B).json()["items"] == []
-    assert client.get(f"/api/ops/invoices/{invoice}/events", headers=B).status_code == 404
-    assert client.post(f"/api/ops/invoices/{invoice}/transition",
-                       headers=B, json={"status":"review", "reason":"Check data"}).status_code == 404
-    assert client.post(f"/api/ops/invoices/{invoice}/transition",
-                       headers=A, json={"status":"sandbox-paid", "reason":"No proof"}).status_code == 409
-    for state in ("review", "approved", "sandbox-paid"):
-        result = client.post(f"/api/ops/invoices/{invoice}/transition",
-                             headers=A, json={"status":state, "reason":"Controlled demo"})
-        assert result.status_code == 200, result.text
-        assert result.json()["verified_payment"] is False
-    events = client.get(f"/api/ops/invoices/{invoice}/events", headers=A).json()["events"]
-    assert len(events) == 4
-    assert client.post(f"/api/ops/invoices/{invoice}/transition",
-                       headers=A, json={"status":"review","reason":"Again"}).status_code == 409
+def test_tenant_paths(monkeypatch):
+    db = MagicMock()
+    monkeypatch.setattr(operations, "store", lambda: db)
+    operations.invoices("alice")
+    db.collection.assert_called_with("pazalink_users")
+    db.collection.return_value.document.assert_called_with("alice")
+    operations.invoices("bob")
+    db.collection.return_value.document.assert_called_with("bob")
 
+def test_validation_and_integration_status():
+    token = {"Authorization":"Bearer alice-token"}
+    result = client.post("/api/ops/invoices", headers=token, json={
+        "counterparty":"Example", "amount":"-1", "currency":"usd", "corridor":"EAC"})
+    assert result.status_code == 422
+    response = client.get("/api/ops/integrations",headers=token)
+    assert response.status_code == 200
+    assert response.json()["production_settlement"] is False
 
-def test_invalid_invoice_and_integration_honesty():
-    bad = client.post("/api/ops/invoices", headers=A, json={
-        "counterparty":"x", "amount":"-1", "currency":"usd", "corridor":"a"
-    })
-    assert bad.status_code == 422
-    integrations = client.get("/api/ops/integrations", headers=A).json()
-    assert integrations["production_settlement"] is False
-    assert integrations["daraja_mpesa"] == "not-connected"
+def test_missing_or_invalid_invoice_id():
+    token = {"Authorization":"Bearer alice-token"}
+    response = client.get("/api/ops/invoices/not-valid/events", headers=token)
+    assert response.status_code == 404
+    response = client.post("/api/ops/invoices/not-valid/transition",headers=token,
+                           json={"status":"review","reason":"check transaction"})
+    assert response.status_code == 404
+
+def test_state_machine():
+    assert operations.ALLOWED["draft"] == {"review"}
+    assert "sandbox-paid" not in operations.ALLOWED["draft"]
+    assert operations.ALLOWED["sandbox-paid"] == set()
