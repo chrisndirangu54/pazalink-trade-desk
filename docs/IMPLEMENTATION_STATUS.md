@@ -31,3 +31,11 @@ Updated: 2026-10-22.
 
 ## Safety
 This repository is a prototype and must remain sandbox only. Real remittance, payments, FX and custody require licensing/compliance review, provider agreements, privacy and security assessment, and transaction monitoring.
+
+## 2026-10-22 operations foundation extension
+- Added SQLite-backed fictional invoices, per-user filtered listing, manually controlled transitions and append-only event history.
+- Added static bearer-token authentication **strictly for local, trusted testing**. This is not production identity management (no rotation, MFA, sessions, enrollment or recovery).
+- Added honest integration capability reporting. 'sandbox-paid' is a human-entered demo label, not a processor confirmation.
+- Added access isolation and state-machine regression tests.
+- A shared SQLite file is not an adequate hosted database for multiple application replicas. Use managed Postgres with migrations before production.
+- External webhooks, signed callbacks, fraud detection, settlements and verification remain unimplemented.

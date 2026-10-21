@@ -14,7 +14,10 @@ from pydantic import BaseModel, Field
 
 load_dotenv()
 
-app = FastAPI(title="PazaLink Trade Desk", version="0.1.0")
+from operations import router as operations_router
+
+app = FastAPI(title="PazaLink Trade Desk", version="0.2.0")
+app.include_router(operations_router)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
