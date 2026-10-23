@@ -4,7 +4,7 @@ Updated: 2026-10-22.
 
 ## Implemented in repository
 - Responsive Trade Desk with visibly **fictional** payment records.
-- Server-side PayPal REST sandbox order creation and capture endpoints.
+- Server-side PayPal REST sandbox order creation endpoint. The capture route remains blocked with HTTP 501 when explicitly enabled; capture is not implemented.
 - Nebius Token Factory AI analysis endpoint when a Nebius API key is present.
 - Explicit rules-only fallback when model credentials are absent.
 - Basic input validation and automated offline tests in GitHub Actions.

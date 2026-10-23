@@ -38,6 +38,7 @@
       <aside class="ai-card">
         <div class="ai-label">PazaLink AI review</div><h2>Get a second look at a payment record.</h2><p class="muted">The assistant summarizes reconciliation questions and suggests checks. It cannot verify identities or authorize a transfer.</p>
         <button id="analyze-btn" class="secondary analyze-btn">Review selected transaction</button>
+        <button id="demo-review-btn" class="quiet analyze-btn" hidden disabled>Try local rules sandbox</button>
         <div id="analysis" class="output">Select a transaction from the table, then run a review.</div>
         <div id="provider" class="provider">Checking model connection…</div>
       </aside>
@@ -50,12 +51,12 @@
   <div class="toast" id="toast" role="status"></div>
   <div class="modal-backdrop" id="modal"><div class="modal"><h2>PayPal sandbox connection</h2><p>Credentials are configured on the server in the real demo. This public UI cannot store or transmit secrets. The order action will remain unavailable until the server is configured.</p><label>Sandbox status</label><input value="Server configuration required" disabled/><div class="modal-actions"><button class="quiet" id="modal-close">Close</button></div></div></div>
   <script type="module">
-    import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
-    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
     let currentUser = null, firebaseAuth = null;
     const authBanner = document.querySelector('#auth-banner');
     const authConfig = await fetch('/api/firebase-config').then(r=>r.ok?r.json():null).catch(()=>null);
     if (authConfig?.apiKey && authConfig?.projectId && authConfig?.authDomain && authConfig?.appId) {
+      const {initializeApp}=await import('https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js');
+      const {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged}=await import('https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js');
       firebaseAuth = getAuth(initializeApp(authConfig));
       onAuthStateChanged(firebaseAuth, async user => {
         currentUser = user;
@@ -117,9 +118,24 @@
     function filter(){const q=document.querySelector('#search').value.toLowerCase();return transactions.filter(t=>`${t.ref} ${t.name} ${t.route}`.toLowerCase().includes(q))}
     render();document.querySelector('#search').addEventListener('input',()=>render(filter()));
     const toast=(msg)=>{const el=document.querySelector('#toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),3800)};
-    async function health(){try{const h=await fetch('/api/health').then(r=>r.json());const ai=document.querySelector('#ai-pill'),pp=document.querySelector('#paypal-pill');ai.textContent=h.nebius_configured?`AI: ${h.nebius_model}`:'AI: local demo rules';ai.className=`pill ${h.nebius_configured?'live':''}`;pp.textContent=h.paypal_sandbox_configured?'PayPal sandbox: connected':'PayPal sandbox: not configured';pp.className=`pill ${h.paypal_sandbox_configured?'live':''}`;document.querySelector('#provider').textContent=h.nebius_configured?`Model path: Nebius Token Factory · ${h.nebius_model}`:'Local rules demo active; no language model was called.';document.querySelector('#order-btn').classList.toggle('disabled',!h.paypal_sandbox_configured);document.querySelector('#order-btn').setAttribute('aria-disabled',String(!h.paypal_sandbox_configured))}catch{document.querySelector('#provider').textContent='Server unavailable; open this app through the FastAPI server.'}}
+    async function health(){try{const h=await fetch('/api/health').then(r=>r.json());const ai=document.querySelector('#ai-pill'),pp=document.querySelector('#paypal-pill');ai.textContent=h.nebius_configured?`AI configured, unverified: ${h.nebius_model}`:'AI: local demo rules';ai.className=`pill ${h.nebius_configured?'live':''}`;pp.textContent=h.paypal_sandbox_configured?'PayPal sandbox: configured, unverified':'PayPal sandbox: not configured';pp.className=`pill ${h.paypal_sandbox_configured?'live':''}`;document.querySelector('#provider').textContent=h.nebius_configured?`Model path: Nebius Token Factory · ${h.nebius_model}`:'Local rules demo active; no language model was called.';document.querySelector('#order-btn').classList.toggle('disabled',!h.paypal_sandbox_configured);document.querySelector('#order-btn').setAttribute('aria-disabled',String(!h.paypal_sandbox_configured))}catch{document.querySelector('#provider').textContent='Server unavailable; open this app through the FastAPI server.'}}
     document.querySelector('#analyze-btn').disabled=true;
     health();
+    const demoButton=document.querySelector('#demo-review-btn');
+    const demoConfig=await fetch('/api/health').then(r=>r.json()).catch(()=>({}));
+    demoButton.hidden=!demoConfig.local_rules_demo_enabled;
+    demoButton.disabled=!demoConfig.local_rules_demo_enabled;
+    if(demoConfig.local_rules_demo_enabled)authBanner.textContent='LOCAL RULES SANDBOX · You can review fictional sample records without sign-in. No AI model, Firebase record or payment is involved. Protected integrations still require Firebase sign-in.';
+    demoButton.addEventListener('click',async()=>{
+      demoButton.disabled=true;
+      try{
+        const response=await fetch('/api/demo/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference:selected.ref,amount:Number(selected.amount.replace(/[^0-9.]/g,'')),currency:selected.currency,counterparty:selected.name,corridor:selected.route,note:selected.note})});
+        const data=await response.json();if(!response.ok)throw Error(data.detail||'Demo unavailable');
+        document.querySelector('#analysis').textContent=`${data.summary}\n\nChecks:\n• ${data.checks.join('\n• ')}\n\n${data.suggested_action}\n\n${data.disclaimer}`;
+        document.querySelector('#provider').textContent='LOCAL RULES ONLY · No language model was called; no payment authorized.';
+      }catch(e){document.querySelector('#analysis').textContent='Local demonstration unavailable: '+e.message;}
+      finally{demoButton.disabled=false;}
+    });
     document.querySelector('#connect-btn').addEventListener('click',()=>document.querySelector('#modal').classList.add('show'));
     document.querySelector('#modal-close').addEventListener('click',()=>document.querySelector('#modal').classList.remove('show'));
     document.querySelector('#modal').addEventListener('click',e=>{if(e.target.id==='modal')e.currentTarget.classList.remove('show')});

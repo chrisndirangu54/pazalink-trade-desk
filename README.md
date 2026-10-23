@@ -5,7 +5,7 @@ An AI-assisted payment and reconciliation workspace for East African cross-borde
 ## Current status
 
 - The interface runs with clearly labeled synthetic sample transactions.
-- PayPal sandbox order creation and capture are implemented server-side and require PayPal sandbox credentials.
+- PayPal sandbox order creation is implemented server-side and requires sandbox credentials and Firebase sign-in. **Capture remains disabled/unimplemented** pending ownership and buyer-approval checks; do not describe an order as paid.
 - AI review calls Nebius Token Factory using NVIDIA Nemotron when `NEBIUS_API_KEY` is configured. Without it, the backend returns a transparent local rules demo; this fallback is not a model inference.
 - No API keys or personal payment data are included in this repository.
 
@@ -19,7 +19,20 @@ cp .env.example .env
 uvicorn app:app --reload
 ```
 
-Open `http://127.0.0.1:8000`. The app works in demo mode without secrets. To enable PayPal, set `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` from a PayPal **sandbox** application. To enable the required NVIDIA model path, set `NEBIUS_API_KEY`; the default model is `nvidia/nvidia-nemotron-3-nano-30b-a3b` through Nebius Token Factory.
+Open `http://127.0.0.1:8000`. Protected provider and invoice features require Firebase frontend configuration and sign-in; see `docs/FIREBASE.md`. To enable PayPal order creation, set `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` from a PayPal **sandbox** application. To enable the required NVIDIA model path, set `NEBIUS_API_KEY`; the default model is `nvidia/Nemotron-3_5-Lightning`, listed in the official [Nebius Nemotron cookbook](https://github.com/nebius/token-factory-cookbook/tree/main/models/nemotron). Actual availability and inference still need a live account test.
+
+### Local UI demonstration without credentials
+
+PowerShell:
+
+```powershell
+$env:ENABLE_LOCAL_RULES_DEMO='true'
+python -m uvicorn app:app --host 127.0.0.1 --port 8788
+```
+
+Open `http://127.0.0.1:8788`, select a fictional transaction, then choose **Try local rules sandbox**. This calls local rules only, even if a model key is configured. It never writes Firebase invoices, invokes Nebius, or creates payments. It is disabled by default and rejects remote peers, non-local hostnames and cross-origin requests. It does not unlock protected integration endpoints or replace a qualifying Nebius/PayPal demonstration.
+
+The authenticated Nebius endpoint validates complete JSON output before displaying it. Malformed, truncated or refused responses fail visibly with HTTP 502 instead of silently becoming a successful fallback. The model's action text cannot authorize payment; the server always requires human review. A configured credential is not proof of a working integration.
 
 ## Safety and scope
 
