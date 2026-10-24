@@ -59,6 +59,7 @@ def test_bad_analysis_input_rejected(monkeypatch, field, value):
 def test_paypal_requires_server_side_credentials(monkeypatch):
     monkeypatch.delenv("PAYPAL_CLIENT_ID", raising=False)
     monkeypatch.delenv("PAYPAL_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("PAYPAL_ORDER_SIGNING_SECRET", raising=False)
     request = {"reference":"PL-001", "amount":"12.40", "description":"Fictional invoice"}
     response = client.post("/api/paypal/orders", json=request)
     assert response.status_code == 503

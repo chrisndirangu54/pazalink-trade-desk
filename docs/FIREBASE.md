@@ -1,8 +1,22 @@
 # Existing Firebase integration
 
+## Dedicated demo project (24 October 2026)
+
+Project `pazalink-demo-261024` has Google sign-in enabled and a web app registered.
+Firestore database `pazalink` uses Enterprise native mode in `africa-south1`
+(Johannesburg). The database reports `freeTier: true`; project billing is disabled.
+Set `FIRESTORE_DATABASE_ID=pazalink` to select this named database. Existing
+installations may omit it to retain `(default)`.
+
+The existing backend-only Firestore rules compiled and deployed successfully.
+They deny client SDK access; server authorization and tenant scoping remain
+essential because Admin SDK calls bypass these rules. Local Application Default
+Credentials and live authenticated workflow verification are still pending.
+No service-account key was created. `.env` remains private and ignored.
+
 PazaLink uses Google sign-in through Firebase Authentication and server-side Firebase Admin token verification. Invoice documents are scoped under `pazalink_users/{verified_uid}/invoices`; the client does not choose its owner ID. The browser never receives service-account credentials.
 
-Use the intended existing Firebase project. No Firebase project or database was provisioned during this validation. Before connecting a database, confirm its ID, location, edition, billing status and access policy in the Firebase console. Do not point test runs at production customer data.
+Use the dedicated demo project above for fictional validation data. Do not point test runs at production customer data.
 
 Configure the public Firebase web app identifiers on the server: `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, and `FIREBASE_APP_ID`. Enable the intended Google sign-in provider and authorized local/hosted domains in that project. Backend credentials must use trusted Application Default Credentials or `GOOGLE_APPLICATION_CREDENTIALS` pointing to a private file outside this repository. Grant only the permissions needed for the test project. Never commit that file or expose it through static hosting.
 
