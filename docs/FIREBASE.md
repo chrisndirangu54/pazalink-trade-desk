@@ -11,7 +11,10 @@ installations may omit it to retain `(default)`.
 The existing backend-only Firestore rules compiled and deployed successfully.
 They deny client SDK access; server authorization and tenant scoping remain
 essential because Admin SDK calls bypass these rules. Local Application Default
-Credentials and live authenticated workflow verification are still pending.
+Credentials were saved with user approval. A genuine Admin SDK read of the named
+database and Firebase Auth user listing succeeded. Loopback `127.0.0.1` is an
+authorized OAuth domain. Live browser sign-in and invoice workflow verification
+are still pending.
 No service-account key was created. `.env` remains private and ignored.
 
 PazaLink uses Google sign-in through Firebase Authentication and server-side Firebase Admin token verification. Invoice documents are scoped under `pazalink_users/{verified_uid}/invoices`; the client does not choose its owner ID. The browser never receives service-account credentials.
