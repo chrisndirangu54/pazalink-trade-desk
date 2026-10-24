@@ -19,7 +19,7 @@
     </header>
     <section class="intro">
       <div><div class="eyebrow">Cross-border trade operations</div><h1>Know what needs attention<br/>before money moves.</h1><p>Review incoming payments, match invoices and ask a cautious AI assistant to surface reconciliation checks. Payment actions stay under human control.</p></div>
-      <button class="primary" id="connect-btn">Connect PayPal sandbox</button>
+      <div style="display:flex;gap:9px;flex-wrap:wrap"><a class="primary" href="/static/bodaless.html" style="text-decoration:none;display:inline-flex;align-items:center">Open Bodaless Trade Suite →</a><button class="secondary" id="connect-btn">Connect PayPal sandbox</button></div>
     </section>
     <section id="auth-banner" class="notice" role="status">Sign in with Firebase to use protected features. The sample table below is fictional.</section>
     <section class="card panel" id="invoice-controls" style="margin-top:16px"><div class="panel-head"><div><h2>My Firebase invoices</h2><p>Authenticated, owner-scoped Firestore records</p></div><button class="secondary" id="refresh-invoices">Refresh</button></div><form id="invoice-form" style="display:flex;flex-wrap:wrap;gap:8px"><input required name="counterparty" placeholder="Counterparty" maxlength="120"/><input required name="amount" type="number" min=".01" step=".01" placeholder="Amount (USD)"/><input required name="corridor" placeholder="Corridor" maxlength="100"/><button class="primary" type="submit">Create demo invoice</button></form><div id="my-invoices" class="note">Sign in to view your invoices.</div></section>
