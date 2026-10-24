@@ -13,8 +13,9 @@ They deny client SDK access; server authorization and tenant scoping remain
 essential because Admin SDK calls bypass these rules. Local Application Default
 Credentials were saved with user approval. A genuine Admin SDK read of the named
 database and Firebase Auth user listing succeeded. Loopback `127.0.0.1` is an
-authorized OAuth domain. Live browser sign-in and invoice workflow verification
-are still pending.
+authorized OAuth domain. Actual browser Google sign-in, creation and refresh of fictional invoice
+`PL-F6D2E5CBCE752AA8` (USD 1.00), and sign-out clearing the invoice view
+were verified. Two-identity isolation and revoked-token live checks remain pending.
 No service-account key was created. `.env` remains private and ignored.
 
 PazaLink uses Google sign-in through Firebase Authentication and server-side Firebase Admin token verification. Invoice documents are scoped under `pazalink_users/{verified_uid}/invoices`; the client does not choose its owner ID. The browser never receives service-account credentials.
