@@ -15,7 +15,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 from operations import principal
 
 router = APIRouter(prefix="/api/bodaless", tags=["bodaless-simulation"])
@@ -177,7 +177,7 @@ def get_listings(user: str = Depends(principal)):
 @router.get("/records")
 def get_records(user: str = Depends(principal)):
     with _lock:
-        return {"items": list(pocket(user).values()), "ephemeral": True,
+        return {"items": [{k: v for k, v in r.items() if k not in ("salt", "digest")} for r in pocket(user).values()], "ephemeral": True,
                 "sandbox_only": True}
 
 
