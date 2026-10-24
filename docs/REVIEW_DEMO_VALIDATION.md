@@ -4,9 +4,9 @@
 
 The local application supports fictional invoice selection, filtering and a clearly labeled rules-only review without external credentials. It is an interface demonstration, not evidence of Nebius inference, PayPal payment, customer adoption or deployed service availability.
 
-Automated validation: `python -m pytest -q` passed 32 tests before packaging. Provider responses are mocked with HTTPX; the Firebase store tests use test doubles. These tests do not verify any live provider. One Starlette warning concerns the deprecated HTTPX TestClient integration.
+Automated validation: `python -m pytest -q` passed 54 tests before packaging. Provider responses are mocked with HTTPX; the Firebase store tests use test doubles. These tests do not verify any live provider. One Starlette warning concerns the deprecated HTTPX TestClient integration. The payment tests cover valid capture, cross-user rejection, receipt tampering and expiry, approval status, changed reference/amount/currency, pending capture, processor errors, completed-order reconciliation and idempotency scope.
 
-Manual browser validation on `http://127.0.0.1:8788/`: page loaded without Firebase credentials; the local rules button returned a checklist; searching for Kijiji filtered the sample table. Protected review and invoice endpoints still require Firebase authentication. No payment or model call was made.
+Manual browser validation on `http://127.0.0.1:8789/`: page loaded without Firebase credentials; local rules flagged the selected fictional record's changed payment instructions. Earlier testing on port 8788 verified searching for Kijiji filtered the sample table. Protected review and invoice endpoints still require Firebase authentication. No payment or model call was made. Payment approval and capture UI need a real authenticated sandbox run.
 
 ## Architecture
 
@@ -16,7 +16,7 @@ flowchart LR
   API --> Auth[Firebase Admin verification]
   API --> Store[Firestore per-user invoices]
   API -->|server key / validated JSON| Model[Nebius Token Factory]
-  API -->|sandbox credentials only| PayPal[PayPal sandbox order creation]
+  API -->|signed owner receipt / approval checks| PayPal[PayPal sandbox create and capture]
   UI -->|explicit opt-in / loopback only| Demo[Local rules checklist]
   Demo --> NoSideEffects[No model, database write or payment]
 ```
@@ -28,13 +28,13 @@ flowchart LR
 
 Nebius registration is complete. The console requests billing details and a card; neither was supplied. The official hackathon free-credit request returned “Form submitted — The promo code will be emailed to you.” Credits have not yet been verified or redeemed. No API key or model call has been verified.
 
-Firebase sign-in and Firestore need genuine project configuration and a controlled test identity. PayPal credentials, buyer approval and ownership-bound capture remain outstanding. Capture deliberately returns 501 when enabled, pending those checks. No hosted demo URL or final competition walkthrough is claimed. The local server is not an externally reachable demo URL.
+Firebase sign-in and Firestore need genuine project configuration and a controlled test identity. PayPal sandbox credentials and a signing secret are not configured. Ownership-bound capture and buyer-approval checks are now implemented and mock-tested, but genuine buyer approval and processor capture remain unverified. No hosted demo URL or final competition walkthrough is claimed. The local server is not an externally reachable demo URL.
 
 ## Next live validation
 
 1. Verify free credits and obtain an approved server-side Nebius credential without enabling paid usage.
 2. Configure the existing Firebase architecture; verify two-user isolation using real test identities.
 3. Run an actual NVIDIA model request and retain a redacted provider request ID and model name.
-4. Implement ownership-bound PayPal sandbox approval/capture and verify the processor result; never treat a manual invoice status as payment proof.
+4. Exercise the implemented PayPal sandbox approval/capture with real sandbox buyer/seller accounts and verify the processor result; never treat a manual invoice status as payment proof.
 5. Record a continuous live walkthrough under three minutes once the required integrations work. Keep credential and billing screens out of the recording.
 6. Recheck the official rules, repository license/access and evidence before seeking submission approval.

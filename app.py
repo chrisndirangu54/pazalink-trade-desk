@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import os
 import re
+import base64
+import hashlib
+import hmac
+import json
+import time
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -10,7 +15,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 load_dotenv()
 
@@ -34,6 +39,17 @@ class OrderRequest(BaseModel):
     reference: str = Field(min_length=1, max_length=80)
     amount: str = Field(pattern=r"^\d+(\.\d{1,2})?$")
     description: str = Field(min_length=1, max_length=200)
+
+    @field_validator("amount")
+    @classmethod
+    def positive_amount(cls, value):
+        if not Decimal("0") < Decimal(value) <= Decimal("1000000"):
+            raise ValueError("Amount must be positive and at most 1000000 USD")
+        return format(Decimal(value), ".2f")
+
+
+class CaptureRequest(BaseModel):
+    receipt: str = Field(min_length=1, max_length=2000)
 
 
 class ModelReview(BaseModel):
@@ -186,17 +202,85 @@ async def paypal_access_token(client: httpx.AsyncClient) -> str:
     return response.json()["access_token"]
 
 
+def order_signing_key() -> bytes:
+    key = os.getenv("PAYPAL_ORDER_SIGNING_SECRET", "")
+    if len(key) < 32:
+        raise HTTPException(503, "A private order-signing secret of at least 32 characters is required.")
+    return key.encode()
+
+
+def request_id(*parts: str) -> str:
+    return hashlib.sha256(json.dumps(parts).encode()).hexdigest()[:36]
+
+
+def sign_order(user: str, order_id: str, payload: OrderRequest) -> str:
+    claims = {"owner": user, "id": order_id, "amount": payload.amount,
+              "reference": payload.reference, "expires": int(time.time()) + 3600}
+    encoded = base64.urlsafe_b64encode(json.dumps(claims, separators=(",", ":")).encode()).decode().rstrip("=")
+    signature = hmac.new(order_signing_key(), encoded.encode(), hashlib.sha256).hexdigest()
+    return encoded + "." + signature
+
+
+def verify_order(receipt: str, user: str, order_id: str) -> dict:
+    key = order_signing_key()
+    try:
+        encoded, signature = receipt.split(".")
+        expected = hmac.new(key, encoded.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise ValueError("Signature")
+        claims = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+        if claims["owner"] != user or claims["id"] != order_id or claims["expires"] <= time.time():
+            raise ValueError("Order ownership or expiry")
+        return claims
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(403, "Invalid, expired or differently owned sandbox order receipt.") from exc
+
+
+def check_paypal_order(data: dict, order_id: str, claims: dict) -> dict:
+    try:
+        units = data["purchase_units"]
+        if data["id"] != order_id or data["intent"] != "CAPTURE" or len(units) != 1:
+            raise ValueError("Unexpected order")
+        unit = units[0]
+        if (unit["reference_id"] != claims["reference"] or
+                unit["amount"]["currency_code"] != "USD" or
+                Decimal(unit["amount"]["value"]) != Decimal(claims["amount"])):
+            raise ValueError("Amount/reference mismatch")
+        return unit
+    except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
+        raise HTTPException(502, "PayPal order did not match the signed sandbox invoice.") from exc
+
+
+def completed_capture(data: dict, order_id: str, claims: dict) -> dict:
+    unit = check_paypal_order(data, order_id, claims)
+    try:
+        captures = unit["payments"]["captures"]
+        if data["status"] != "COMPLETED" or len(captures) != 1:
+            raise ValueError("Capture incomplete")
+        capture = captures[0]
+        if (capture["status"] != "COMPLETED" or not capture["id"] or
+                capture["amount"]["currency_code"] != "USD" or
+                Decimal(capture["amount"]["value"]) != Decimal(claims["amount"])):
+            raise ValueError("Capture mismatch")
+        return {"id": order_id, "status": "COMPLETED", "capture_id": capture["id"],
+                "amount": claims["amount"], "currency": "USD", "sandbox_only": True,
+                "production_payment": False}
+    except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
+        raise HTTPException(502, "PayPal has not confirmed a matching completed sandbox capture.") from exc
+
+
 @app.post("/api/paypal/orders")
 async def create_paypal_order(payload: OrderRequest, user: str = Depends(principal)) -> dict[str, Any]:
     if not os.getenv("PAYPAL_CLIENT_ID") or not os.getenv("PAYPAL_CLIENT_SECRET"):
         raise HTTPException(status_code=503, detail="PayPal sandbox credentials are not configured on the server.")
     base = paypal_sandbox_base_url()
+    order_signing_key()  # Fail before creating an order if it cannot be bound to its owner.
     try:
         async with httpx.AsyncClient(timeout=25) as client:
             token = await paypal_access_token(client)
             response = await client.post(
                 f"{base}/v2/checkout/orders",
-                headers={"Authorization": f"Bearer {token}", "PayPal-Request-Id": payload.reference},
+                headers={"Authorization": f"Bearer {token}", "PayPal-Request-Id": request_id("create", user, payload.reference, payload.amount, payload.description), "Prefer": "return=representation"},
                 json={
                     "intent": "CAPTURE",
                     "purchase_units": [{
@@ -209,15 +293,42 @@ async def create_paypal_order(payload: OrderRequest, user: str = Depends(princip
             )
             if response.is_error:
                 raise HTTPException(status_code=502, detail="PayPal sandbox order creation failed.")
-            return response.json()
-    except httpx.HTTPError as exc:
+            data = response.json()
+            order_id = data["id"]
+            if not re.fullmatch(r"[A-Z0-9]{1,36}", order_id):
+                raise ValueError("Invalid provider order ID")
+            return {"id": order_id, "status": data["status"], "sandbox_only": True,
+                    "receipt": sign_order(user, order_id, payload),
+                    "approval_url": next((link["href"] for link in data.get("links", [])
+                         if link.get("rel") == "approve" and link.get("href", "").startswith("https://www.sandbox.paypal.com/")), None)}
+    except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=502, detail="Could not reach PayPal sandbox.") from exc
 
 
 @app.post("/api/paypal/orders/{order_id}/capture")
-async def capture_paypal_order(order_id: str, user: str = Depends(principal)) -> dict[str, Any]:
+async def capture_paypal_order(order_id: str, payload: CaptureRequest, user: str = Depends(principal)) -> dict[str, Any]:
     if os.getenv("ENABLE_SANDBOX_CAPTURE") != "true":
         raise HTTPException(status_code=403, detail="Sandbox capture is disabled by default; enable only for controlled tests.")
-    if not re.fullmatch(r"[A-Za-z0-9-]{1,80}", order_id):
+    if not re.fullmatch(r"[A-Z0-9]{1,36}", order_id):
         raise HTTPException(status_code=422, detail="Invalid order ID.")
-    raise HTTPException(status_code=501, detail="Capture is disabled until ownership and buyer approval checks are implemented.")
+    claims = verify_order(payload.receipt, user, order_id)
+    base = paypal_sandbox_base_url()
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            token = await paypal_access_token(client)
+            headers = {"Authorization": f"Bearer {token}"}
+            details = await client.get(f"{base}/v2/checkout/orders/{order_id}", headers=headers)
+            details.raise_for_status()
+            data = details.json()
+            check_paypal_order(data, order_id, claims)
+            if data["status"] == "COMPLETED":
+                return completed_capture(data, order_id, claims)
+            if data["status"] != "APPROVED":
+                raise HTTPException(409, "Buyer must approve this order in PayPal sandbox before capture.")
+            response = await client.post(f"{base}/v2/checkout/orders/{order_id}/capture",
+                headers={**headers, "PayPal-Request-Id": request_id("capture", user, order_id),
+                         "Prefer": "return=representation"}, json={})
+            response.raise_for_status()
+            return completed_capture(response.json(), order_id, claims)
+    except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(502, "PayPal sandbox capture could not be confirmed; check the order before retrying.") from exc
