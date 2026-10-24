@@ -38,27 +38,28 @@
       <aside class="ai-card">
         <div class="ai-label">PazaLink AI review</div><h2>Get a second look at a payment record.</h2><p class="muted">The assistant summarizes reconciliation questions and suggests checks. It cannot verify identities or authorize a transfer.</p>
         <button id="analyze-btn" class="secondary analyze-btn">Review selected transaction</button>
+        <button id="demo-review-btn" class="quiet analyze-btn" hidden disabled>Try local rules sandbox</button>
         <div id="analysis" class="output">Select a transaction from the table, then run a review.</div>
         <div id="provider" class="provider">Checking model connection…</div>
       </aside>
     </section>
     <section class="bottom">
       <article class="card panel"><div class="panel-head"><div><h2>Payment path</h2><p>Designed for diaspora invoices and regional traders</p></div><span class="pill">Sandbox only</span></div><div class="flow"><div class="step"><b>Invoice</b><small>USD request</small></div><span class="arrow">→</span><div class="step"><b>PayPal</b><small>Sandbox order</small></div><span class="arrow">→</span><div class="step"><b>Reconcile</b><small>Human review</small></div><span class="arrow">→</span><div class="step"><b>Ledger</b><small>Record result</small></div></div><p class="note">This prototype does not represent a completed bank, M-Pesa, FX, or blockchain settlement integration.</p></article>
-      <article class="card panel"><div class="panel-head"><div><h2>Control principles</h2><p>Built for small teams managing cross-border invoices</p></div></div><p class="muted">• Confirm account changes through a trusted channel.<br/>• Keep API credentials on the server.<br/>• Treat AI output as a checklist, not proof.<br/>• Record the human decision and reference.</p><button id="order-btn" class="quiet">Create sandbox invoice for selected record</button><p id="order-result" class="note">No order created.</p></article>
+      <article class="card panel"><div class="panel-head"><div><h2>Control principles</h2><p>Built for small teams managing cross-border invoices</p></div></div><p class="muted">• Confirm account changes through a trusted channel.<br/>• Keep API credentials on the server.<br/>• Treat AI output as a checklist, not proof.<br/>• Record the human decision and reference.</p><button id="order-btn" class="quiet">Create sandbox invoice for selected record</button><p id="order-result" class="note">No order created.</p><a id="approve-order" hidden target="_blank" rel="noopener noreferrer">Approve in PayPal sandbox</a><button id="capture-order" class="quiet" hidden>Check approval and capture sandbox order</button></article>
     </section>
   </main>
   <div class="toast" id="toast" role="status"></div>
   <div class="modal-backdrop" id="modal"><div class="modal"><h2>PayPal sandbox connection</h2><p>Credentials are configured on the server in the real demo. This public UI cannot store or transmit secrets. The order action will remain unavailable until the server is configured.</p><label>Sandbox status</label><input value="Server configuration required" disabled/><div class="modal-actions"><button class="quiet" id="modal-close">Close</button></div></div></div>
   <script type="module">
-    import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
-    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
-    let currentUser = null, firebaseAuth = null;
+    let currentUser = null, firebaseAuth = null, currentSandboxOrder = null;
     const authBanner = document.querySelector('#auth-banner');
     const authConfig = await fetch('/api/firebase-config').then(r=>r.ok?r.json():null).catch(()=>null);
     if (authConfig?.apiKey && authConfig?.projectId && authConfig?.authDomain && authConfig?.appId) {
+      const {initializeApp}=await import('https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js');
+      const {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged}=await import('https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js');
       firebaseAuth = getAuth(initializeApp(authConfig));
       onAuthStateChanged(firebaseAuth, async user => {
-        currentUser = user;
+        currentUser = user; currentSandboxOrder=null; document.querySelector('#approve-order').hidden=true; document.querySelector('#capture-order').hidden=true;
         document.querySelector('#sign-in-btn').hidden=!!user;
         document.querySelector('#sign-out-btn').hidden=!user;
         authBanner.textContent=user?`Signed in: ${user.email||user.uid}. Demo financial operations only.`:'Sign in to access protected features.';
@@ -117,14 +118,41 @@
     function filter(){const q=document.querySelector('#search').value.toLowerCase();return transactions.filter(t=>`${t.ref} ${t.name} ${t.route}`.toLowerCase().includes(q))}
     render();document.querySelector('#search').addEventListener('input',()=>render(filter()));
     const toast=(msg)=>{const el=document.querySelector('#toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),3800)};
-    async function health(){try{const h=await fetch('/api/health').then(r=>r.json());const ai=document.querySelector('#ai-pill'),pp=document.querySelector('#paypal-pill');ai.textContent=h.nebius_configured?`AI: ${h.nebius_model}`:'AI: local demo rules';ai.className=`pill ${h.nebius_configured?'live':''}`;pp.textContent=h.paypal_sandbox_configured?'PayPal sandbox: connected':'PayPal sandbox: not configured';pp.className=`pill ${h.paypal_sandbox_configured?'live':''}`;document.querySelector('#provider').textContent=h.nebius_configured?`Model path: Nebius Token Factory · ${h.nebius_model}`:'Local rules demo active; no language model was called.';document.querySelector('#order-btn').classList.toggle('disabled',!h.paypal_sandbox_configured);document.querySelector('#order-btn').setAttribute('aria-disabled',String(!h.paypal_sandbox_configured))}catch{document.querySelector('#provider').textContent='Server unavailable; open this app through the FastAPI server.'}}
+    async function health(){try{const h=await fetch('/api/health').then(r=>r.json());const ai=document.querySelector('#ai-pill'),pp=document.querySelector('#paypal-pill');ai.textContent=h.nebius_configured?`AI configured, unverified: ${h.nebius_model}`:'AI: local demo rules';ai.className=`pill ${h.nebius_configured?'live':''}`;pp.textContent=h.paypal_sandbox_configured?'PayPal sandbox: configured, unverified':'PayPal sandbox: not configured';pp.className=`pill ${h.paypal_sandbox_configured?'live':''}`;document.querySelector('#provider').textContent=h.nebius_configured?`Model path: Nebius Token Factory · ${h.nebius_model}`:'Local rules demo active; no language model was called.';document.querySelector('#order-btn').classList.toggle('disabled',!h.paypal_sandbox_configured);document.querySelector('#order-btn').setAttribute('aria-disabled',String(!h.paypal_sandbox_configured))}catch{document.querySelector('#provider').textContent='Server unavailable; open this app through the FastAPI server.'}}
     document.querySelector('#analyze-btn').disabled=true;
     health();
+    const demoButton=document.querySelector('#demo-review-btn');
+    const demoConfig=await fetch('/api/health').then(r=>r.json()).catch(()=>({}));
+    demoButton.hidden=!demoConfig.local_rules_demo_enabled;
+    demoButton.disabled=!demoConfig.local_rules_demo_enabled;
+    if(demoConfig.local_rules_demo_enabled)authBanner.textContent='LOCAL RULES SANDBOX · You can review fictional sample records without sign-in. No AI model, Firebase record or payment is involved. Protected integrations still require Firebase sign-in.';
+    demoButton.addEventListener('click',async()=>{
+      demoButton.disabled=true;
+      try{
+        const response=await fetch('/api/demo/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference:selected.ref,amount:Number(selected.amount.replace(/[^0-9.]/g,'')),currency:selected.currency,counterparty:selected.name,corridor:selected.route,note:selected.note})});
+        const data=await response.json();if(!response.ok)throw Error(data.detail||'Demo unavailable');
+        document.querySelector('#analysis').textContent=`${data.summary}\n\nChecks:\n• ${data.checks.join('\n• ')}\n\n${data.suggested_action}\n\n${data.disclaimer}`;
+        document.querySelector('#provider').textContent='LOCAL RULES ONLY · No language model was called; no payment authorized.';
+      }catch(e){document.querySelector('#analysis').textContent='Local demonstration unavailable: '+e.message;}
+      finally{demoButton.disabled=false;}
+    });
     document.querySelector('#connect-btn').addEventListener('click',()=>document.querySelector('#modal').classList.add('show'));
     document.querySelector('#modal-close').addEventListener('click',()=>document.querySelector('#modal').classList.remove('show'));
     document.querySelector('#modal').addEventListener('click',e=>{if(e.target.id==='modal')e.currentTarget.classList.remove('show')});
     document.querySelector('#analyze-btn').addEventListener('click',async()=>{const out=document.querySelector('#analysis'),btn=document.querySelector('#analyze-btn');btn.disabled=true;btn.textContent='Reviewing…';out.textContent='Checking the selected record…';try{const res=await securedFetch('/api/ai/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference:selected.ref,amount:Number(selected.amount.replace(/[^0-9.]/g,'')),currency:selected.currency,counterparty:selected.name,corridor:selected.route,note:selected.note})});const data=await res.json();if(!res.ok)throw new Error(data.detail||'Analysis unavailable');out.textContent=data.analysis||`${data.summary}\n\nChecks:\n• ${(data.checks||[]).join('\n• ')}\n\nSuggested action: ${data.suggested_action}\n\n${data.disclaimer||''}`;document.querySelector('#provider').textContent=data.provider==='nebius-token-factory'?`Live model response · ${data.model}`:'Local demo rules active; no language model was called.'}catch(e){out.textContent=`Review unavailable: ${e.message}\nNo action was taken.`}finally{btn.disabled=false;btn.textContent='Review selected transaction'}});
-    document.querySelector('#order-btn').addEventListener('click',async()=>{const btn=document.querySelector('#order-btn');if(btn.getAttribute('aria-disabled')==='true'){toast('Sandbox server credentials are not configured. No order was created.');return}btn.disabled=true;try{const r=await securedFetch('/api/paypal/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference:selected.ref,amount:Number(selected.amount.replace(/[^0-9.]/g,'')).toFixed(2),description:`PazaLink sample invoice ${selected.ref}`})});const d=await r.json();if(!r.ok)throw new Error(d.detail);document.querySelector('#order-result').textContent=`Sandbox order ${d.id} created (${d.status}). Continue only in PayPal's sandbox approval flow.`}catch(e){document.querySelector('#order-result').textContent=`Sandbox order not created: ${e.message}`}finally{btn.disabled=false}});
+    document.querySelector('#order-btn').addEventListener('click',async()=>{const btn=document.querySelector('#order-btn');if(btn.getAttribute('aria-disabled')==='true'){toast('Sandbox server credentials are not configured. No order was created.');return}btn.disabled=true;try{const r=await securedFetch('/api/paypal/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference:selected.ref,amount:Number(selected.amount.replace(/[^0-9.]/g,'')).toFixed(2),description:`PazaLink sample invoice ${selected.ref}`})});const d=await r.json();if(!r.ok)throw new Error(d.detail);currentSandboxOrder=d;const approve=document.querySelector('#approve-order');approve.hidden=!d.approval_url;if(d.approval_url)approve.href=d.approval_url;document.querySelector('#capture-order').hidden=false;document.querySelector('#order-result').textContent=`Sandbox order ${d.id} created (${d.status}). Continue only in PayPal's sandbox approval flow.`}catch(e){document.querySelector('#order-result').textContent=`Sandbox order not created: ${e.message}`}finally{btn.disabled=false}});
+    document.querySelector('#capture-order').addEventListener('click',async()=>{
+      const btn=document.querySelector('#capture-order'),out=document.querySelector('#order-result'),pending=currentSandboxOrder;
+      if(!pending)return;
+      btn.disabled=true;
+      try{
+        const response=await securedFetch(`/api/paypal/orders/${encodeURIComponent(pending.id)}/capture`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({receipt:pending.receipt})});
+        const data=await response.json();if(!response.ok)throw Error(data.detail||'Capture not confirmed');
+        out.textContent=`PayPal SANDBOX confirmed ${data.status}: capture ${data.capture_id}, ${data.amount} ${data.currency}. No production payment occurred. The fictional sample ledger was not changed.`;
+        document.querySelector('#approve-order').hidden=true;
+      }catch(error){out.textContent='Sandbox capture not confirmed: '+error.message;}
+      finally{btn.disabled=false;}
+    });
   </script>
 </body>
 </html>

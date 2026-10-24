@@ -1,10 +1,10 @@
 # PazaLink implementation and verification status
 
-Updated: 2026-10-22.
+Updated: 2026-10-24.
 
 ## Implemented in repository
 - Responsive Trade Desk with visibly **fictional** payment records.
-- Server-side PayPal REST sandbox order creation and capture endpoints.
+- Server-side PayPal REST sandbox create, approval-link and guarded capture endpoints. Signed one-hour receipts bind capture to its Firebase owner and invoice amount; PayPal approval and completed capture are checked directly. Capture is opt-in and only mock-tested so far.
 - Nebius Token Factory AI analysis endpoint when a Nebius API key is present.
 - Explicit rules-only fallback when model credentials are absent.
 - Basic input validation and automated offline tests in GitHub Actions.

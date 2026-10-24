@@ -64,8 +64,8 @@ def test_paypal_requires_server_side_credentials(monkeypatch):
     assert response.status_code == 503
     assert "sandbox" in response.json()["detail"].lower()
     monkeypatch.setenv("ENABLE_SANDBOX_CAPTURE", "true")
-    response = client.post("/api/paypal/orders/FAKE-ORDER/capture")
-    assert response.status_code == 501
+    response = client.post("/api/paypal/orders/FAKEORDER/capture", json={"receipt":"invalid"})
+    assert response.status_code == 503
 
 
 @pytest.mark.parametrize("amount", ["0.001", "-1.00", "1e5", "abc"])
@@ -87,7 +87,7 @@ def test_rules_do_not_claim_identity_verified():
 
 def test_capture_opt_in_required(monkeypatch):
     monkeypatch.delenv("ENABLE_SANDBOX_CAPTURE", raising=False)
-    result = client.post("/api/paypal/orders/FAKE-ORDER/capture")
+    result = client.post("/api/paypal/orders/FAKEORDER/capture", json={"receipt":"invalid"})
     assert result.status_code == 403
 
 
