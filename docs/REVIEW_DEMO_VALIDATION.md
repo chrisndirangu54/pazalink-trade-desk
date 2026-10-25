@@ -1,40 +1,31 @@
-# PazaLink review demo validation — 24 October 2026
+# PazaLink validation and submission evidence
 
-## Scope and evidence
+25 October 2026 (Africa/Nairobi).
 
-The local application supports fictional invoice selection, filtering and a clearly labeled rules-only review without external credentials. It is an interface demonstration, not evidence of Nebius inference, PayPal payment, customer adoption or deployed service availability.
+## Verified live workflows
 
-Automated validation: `python -m pytest -q` passed 54 tests before packaging. Provider responses are mocked with HTTPX; the Firebase store tests use test doubles. These tests do not verify any live provider. One Starlette warning concerns the deprecated HTTPX TestClient integration. The payment tests cover valid capture, cross-user rejection, receipt tampering and expiry, approval status, changed reference/amount/currency, pending capture, processor errors, completed-order reconciliation and idempotency scope.
+- Firebase Google sign-in; server verifies ID tokens with revocation checks.
+- Fictional Firestore invoices created and refreshed through the actual authenticated browser UI. Sign-out clears the protected view. An unauthenticated invoice-list request returns HTTP 401.
+- Firebase AI Logic with enforced App Check and private local debug token. Complete structured Gemini 3.8 Flash reviews flagged unverified beneficiary changes for fictional invoice PL-2048. The app fixes the action to human review and cannot authorize payment.
+- PayPal sandbox: authenticated browser order 74N421906U918074A for fictional USD 1.00, rejected capture before approval, separate generated sandbox buyer approval, COMPLETED capture 798282074M801545V, and repeated capture reconciliation to the same ID.
+- Earlier direct adapter order 5XL09715K7475635L/capture 4J214726CW1053453 is separate evidence and not the authenticated UI walkthrough.
 
-Manual browser validation on `http://127.0.0.1:8789/`: page loaded without Firebase credentials; local rules flagged the selected fictional record's changed payment instructions. Earlier testing on port 8788 verified searching for Kijiji filtered the sample table. Protected review and invoice endpoints still require Firebase authentication. No payment or model call was made. Payment approval and capture UI need a real authenticated sandbox run.
+## Automated validation
 
-## Architecture
+55 offline tests pass with one Starlette TestClient deprecation warning. Tests cover model output validation, payment receipt ownership/tampering/expiry, provider amount/reference/currency/status checks, idempotency and reconciliation, plus auth/loopback/origin protection and no-cache handling for private Firebase AI settings. JavaScript syntax checks pass. GitHub Actions passed implementation commit f3fe8d7b624142777ff00c99b692fc45b06a93d7.
 
-```mermaid
-flowchart LR
-  UI[Browser dashboard] -->|Firebase ID token| API[FastAPI protected endpoints]
-  API --> Auth[Firebase Admin verification]
-  API --> Store[Firestore per-user invoices]
-  API -->|server key / validated JSON| Model[Nebius Token Factory]
-  API -->|signed owner receipt / approval checks| PayPal[PayPal sandbox create and capture]
-  UI -->|explicit opt-in / loopback only| Demo[Local rules checklist]
-  Demo --> NoSideEffects[No model, database write or payment]
-```
+## Recording
 
-## Competition requirements and outstanding blockers
+An actual captioned screen walkthrough is provided in the evidence package, under three minutes. Browser screenshots were sampled during real actions. Each segment retains its observed timing; hard cuts remove sign-in and model waits. Intro/invoice/AI/result/sign-out retakes improve privacy and readability. No simulated screens, real customer data or production payments appear. Account identity is hidden in the app UI. The video is silent with a technical caption narrative.
 
-* Nebius × NVIDIA: [official rules](https://nebiusglobalaihackathon.devpost.com/rules), deadline 30 October 2026 at 10:00 PDT (20:00 Nairobi). Requires actual Nebius runtime plus NVIDIA open-source model, public licensed repository, working demo/test build, and public YouTube walkthrough under three minutes. A rules-only recording cannot establish eligibility.
-* PayPal AI: [official rules](https://paypalaihackathon.devpost.com/rules), deadline 12 November 2026 at 12:00 PST (23:00 Nairobi). Requires meaningful PayPal sandbox functionality and AI, public licensed source and runnable instructions or a hosted demo, with public YouTube video under three minutes.
+## Limitations and remaining submission steps
 
-Nebius registration is complete. A $25 Token Factory promo code arrived by email on 24 October. It has not been redeemed: the console blocks access behind billing details and a card, and the newer [official billing documentation](https://docs.tokenfactory.nebius.com/other-capabilities/billing-new) confirms mandatory card onboarding and potential automatic charges. Neither billing details nor a card was supplied. No API key or model call has been verified. Older documentation describing a card-free promo flow does not match this account's current screen.
+- A later Gemini request returned HTTP 500 high demand; failure remained visible. Earlier SDK registration errors/timeouts were fixed or reported, never counted as successes. The small connectivity probe hit MAX_TOKENS and is labeled incomplete.
+- Live two-user isolation and revoked-token exercises remain pending; offline tests are not a substitute for those checks.
+- Dedicated project pazalink-demo-261024 uses Spark, billing disabled, named Enterprise native database pazalink in Johannesburg with freeTier=true. No service-account key or paid service was created.
+- This is a local runnable demo. No public hosted application URL exists. Production hosting needs production App Check attestation and scoped server credentials; never expose local debug settings or personal ADC through a tunnel.
+- Public YouTube publication and final Devpost submission status must be verified separately. A local MP4 is not a public YouTube link.
+- Nebius/NVIDIA inference remains unverified; this Gemini demonstration cannot satisfy that competition.
+- PR #5 remains unmerged for review. No application submission or production merge is claimed.
 
-Firebase sign-in and Firestore need genuine project configuration and a controlled test identity. PayPal sandbox credentials and a signing secret are not configured. Ownership-bound capture and buyer-approval checks are now implemented and mock-tested, but genuine buyer approval and processor capture remain unverified. No hosted demo URL or final competition walkthrough is claimed. The local server is not an externally reachable demo URL.
-
-## Next live validation
-
-1. Verify free credits and obtain an approved server-side Nebius credential without enabling paid usage.
-2. Configure the existing Firebase architecture; verify two-user isolation using real test identities.
-3. Run an actual NVIDIA model request and retain a redacted provider request ID and model name.
-4. Exercise the implemented PayPal sandbox approval/capture with real sandbox buyer/seller accounts and verify the processor result; never treat a manual invoice status as payment proof.
-5. Record a continuous live walkthrough under three minutes once the required integrations work. Keep credential and billing screens out of the recording.
-6. Recheck the official rules, repository license/access and evidence before seeking submission approval.
+Official PayPal rules: https://paypalaihackathon.devpost.com/rules . Deadline 12 November 2026, 12:00 PST (23:00 Nairobi); public licensed source, meaningful PayPal sandbox and AI functionality, public YouTube video under three minutes, and runnable/demo access instructions. Recheck the form before final submission.

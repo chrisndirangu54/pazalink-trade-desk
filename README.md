@@ -5,7 +5,7 @@ An AI-assisted payment and reconciliation workspace for East African cross-borde
 ## Current status
 
 - The interface runs with clearly labeled synthetic sample transactions.
-- PayPal sandbox order creation and guarded capture are implemented server-side. They require sandbox credentials, a private order-signing secret and Firebase sign-in. Capture remains disabled by default. A genuine fictional USD 1.00 order was approved in the generated sandbox buyer browser and captured: order `5XL09715K7475635L`, capture `4J214726CW1053453`. Repeating the adapter request reconciled the same capture. This was a direct adapter test; it did not exercise the complete authenticated payment UI.
+- PayPal sandbox order creation and guarded capture are implemented server-side. They require sandbox credentials, a private order-signing secret and Firebase sign-in. Capture remains disabled by default. A genuine fictional USD 1.00 order was approved in the generated sandbox buyer browser and captured: order `5XL09715K7475635L`, capture `4J214726CW1053453`. Repeating the adapter request reconciled the same capture. A later authenticated browser walkthrough also verified order `74N421906U918074A` and COMPLETED capture `798282074M801545V`, USD 1.00, including the pre-approval guard and repeated-capture reconciliation.
 - AI review calls Nebius Token Factory using NVIDIA Nemotron when `NEBIUS_API_KEY` is configured. Without it, the backend returns a transparent local rules demo; this fallback is not a model inference.
 - No API keys or personal payment data are included in this repository.
 
@@ -67,6 +67,8 @@ server through a tunnel. Production attestation is required for a hosted app.
 The browser SDK is bundled and checked in for running the Python app without a
 Node build step. To rebuild it: `npm ci --legacy-peer-deps`, then `npm run build:sdk`.
 The selected model is `gemini-3.8-flash`, listed for the Gemini Developer API
-without Blaze in the official Firebase AI Logic model catalog. A configured path
-is not proof of successful inference; see the evidence report for actual results.
+without Blaze in the official Firebase AI Logic model catalog. Complete real structured browser reviews were validated for fictional invoice
+PL-2048, including changed-beneficiary flags. A later retake returned a temporary
+high-demand HTTP 500; the app displayed failure and took no payment action.
+A configured path is not proof of successful inference.
 Nebius still requires real Nebius/NVIDIA inference for that competition.
