@@ -1,0 +1,13 @@
+{
+  "name": "pazalink-browser-sdk",
+  "private": true,
+  "scripts": {
+    "build:sdk": "esbuild scripts/firebase-sdk-entry.js --bundle --format=esm --platform=browser --minify --outfile=static/firebase-sdk.js"
+  },
+  "dependencies": {
+    "firebase": "13.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

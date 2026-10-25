@@ -27,3 +27,22 @@ Configure the public Firebase web app identifiers on the server: `FIREBASE_API_K
 Protected endpoints require a Firebase ID token in `Authorization: Bearer ...`; the server checks revocation. The Admin SDK accesses Firestore on the server, so browser rules do not replace these server authorization checks. The dashboard's invoice controls operate only after sign-in. The explicitly labeled local rules endpoint is independent of Firebase and does not create invoices.
 
 Live verification still required: sign in with two controlled test identities; create a fictional invoice under each; confirm the other identity cannot list its records or access its events; test expired/revoked tokens and sign-out. Existing offline tests use dependency overrides and store doubles and do not prove deployed Firebase behavior.
+
+## Real Gemini validation
+
+Firebase AI Logic was provisioned in this Spark project. App Check enforcement
+is `ENFORCED` for the AI service. With user approval, one private local debug
+token was registered; it is held only in ignored `.env` and excluded from all
+source/evidence packages. The authenticated loopback settings endpoint rejects
+remote and cross-origin requests and uses `Cache-Control: no-store`.
+
+A complete actual browser review from `gemini-3.8-flash` was validated and shown
+for fictional invoice PL-2048: it identified unverified changed beneficiary
+instructions and returned a checklist. The app replaces any model action with
+`Human review before any payment`. Earlier SDK registration and timeout attempts
+were failures; they were not treated as successful inference. A small separate
+connectivity probe hit MAX_TOKENS and is labeled incomplete in its evidence.
+
+The SDK is bundled locally to share a single component registry. Rebuild with
+`npm ci --legacy-peer-deps` and `npm run build:sdk`. A public deployment needs
+production App Check attestation; this private debug setup is local only.

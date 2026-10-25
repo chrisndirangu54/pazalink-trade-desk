@@ -5,7 +5,7 @@ An AI-assisted payment and reconciliation workspace for East African cross-borde
 ## Current status
 
 - The interface runs with clearly labeled synthetic sample transactions.
-- PayPal sandbox order creation and guarded capture are implemented server-side. They require sandbox credentials, a private order-signing secret and Firebase sign-in. Capture remains disabled by default and has only been tested with mocked provider responses; a live sandbox order has not yet been verified.
+- PayPal sandbox order creation and guarded capture are implemented server-side. They require sandbox credentials, a private order-signing secret and Firebase sign-in. Capture remains disabled by default. A genuine fictional USD 1.00 order was approved in the generated sandbox buyer browser and captured: order `5XL09715K7475635L`, capture `4J214726CW1053453`. Repeating the adapter request reconciled the same capture. This was a direct adapter test; it did not exercise the complete authenticated payment UI.
 - AI review calls Nebius Token Factory using NVIDIA Nemotron when `NEBIUS_API_KEY` is configured. Without it, the backend returns a transparent local rules demo; this fallback is not a model inference.
 - No API keys or personal payment data are included in this repository.
 
@@ -53,3 +53,20 @@ The prototype adapts the existing PazaLink concept into a new payment workflow. 
 ## License
 
 MIT. See `LICENSE`.
+
+## Firebase AI Logic local validation
+
+A separate Gemini review path uses Firebase AI Logic with App Check enforced.
+Use the dedicated Spark project described in `docs/FIREBASE.md`, provision AI
+Logic with the Firebase CLI or MCP tool, and privately register a local App Check
+debug token. Save it as `FIREBASE_APPCHECK_DEBUG_TOKEN` in the ignored `.env`.
+Only an authenticated loopback client can retrieve local AI settings; responses
+are not cached. Never publish debug credentials or expose this development
+server through a tunnel. Production attestation is required for a hosted app.
+
+The browser SDK is bundled and checked in for running the Python app without a
+Node build step. To rebuild it: `npm ci --legacy-peer-deps`, then `npm run build:sdk`.
+The selected model is `gemini-3.8-flash`, listed for the Gemini Developer API
+without Blaze in the official Firebase AI Logic model catalog. A configured path
+is not proof of successful inference; see the evidence report for actual results.
+Nebius still requires real Nebius/NVIDIA inference for that competition.

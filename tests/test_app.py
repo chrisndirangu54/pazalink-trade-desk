@@ -27,6 +27,21 @@ def test_dashboard_and_health(monkeypatch):
     assert result.json()["nebius_configured"] is False
 
 
+def test_private_ai_settings_require_auth_and_loopback(monkeypatch):
+    monkeypatch.setenv("FIREBASE_APPCHECK_DEBUG_TOKEN", "private-test-token")
+    app.dependency_overrides.clear()
+    assert client.get("/api/ai/firebase-settings").status_code == 401
+    app.dependency_overrides[principal] = lambda: "offline-test-user"
+    # A remote peer or Host cannot retrieve a local debug credential.
+    assert client.get("/api/ai/firebase-settings").status_code == 403
+    with TestClient(app, client=("127.0.0.1", 12345), base_url="http://127.0.0.1") as local:
+        assert local.get("/api/ai/firebase-settings", headers={"Origin":"https://other.example"}).status_code == 403
+        response = local.get("/api/ai/firebase-settings")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+        assert "private-test-token" not in local.get("/api/health").text
+
+
 def test_local_rules_flag_changed_beneficiary(monkeypatch):
     monkeypatch.delenv("NEBIUS_API_KEY", raising=False)
     payload = {

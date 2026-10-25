@@ -87,7 +87,23 @@ async def health() -> dict[str, Any]:
         "nebius_model": os.getenv("NEBIUS_MODEL", DEFAULT_NEBIUS_MODEL),
         "local_rules_demo_enabled": os.getenv("ENABLE_LOCAL_RULES_DEMO") == "true",
         "configuration_is_verification": False,
+        "firebase_ai_configured": bool(os.getenv("FIREBASE_APPCHECK_DEBUG_TOKEN")),
     }
+
+
+@app.get("/api/ai/firebase-settings")
+async def firebase_ai_settings(request: Request, user: str = Depends(principal)):
+    # The private debug credential is only exposed to a signed-in local client.
+    if request.url.hostname not in {"127.0.0.1", "localhost", "::1"} or not request.client or request.client.host not in {"127.0.0.1", "::1"}:
+        raise HTTPException(403, "Firebase AI debug setup is local only")
+    origin = request.headers.get("origin")
+    if origin and origin != str(request.base_url).rstrip("/"):
+        raise HTTPException(403, "Cross-origin debug setup rejected")
+    debug_token = os.getenv("FIREBASE_APPCHECK_DEBUG_TOKEN")
+    if not debug_token:
+        raise HTTPException(503, "Firebase AI debug setup is not configured")
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"debug_token": debug_token, "model": "gemini-3.8-flash"}, headers={"Cache-Control": "no-store"})
 
 
 def rules_review(payload: AnalyzeRequest) -> dict[str, Any]:
