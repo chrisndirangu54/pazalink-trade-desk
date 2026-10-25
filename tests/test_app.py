@@ -27,6 +27,21 @@ def test_dashboard_and_health(monkeypatch):
     assert result.json()["nebius_configured"] is False
 
 
+def test_private_ai_settings_require_auth_and_loopback(monkeypatch):
+    monkeypatch.setenv("FIREBASE_APPCHECK_DEBUG_TOKEN", "private-test-token")
+    app.dependency_overrides.clear()
+    assert client.get("/api/ai/firebase-settings").status_code == 401
+    app.dependency_overrides[principal] = lambda: "offline-test-user"
+    # A remote peer or Host cannot retrieve a local debug credential.
+    assert client.get("/api/ai/firebase-settings").status_code == 403
+    with TestClient(app, client=("127.0.0.1", 12345), base_url="http://127.0.0.1") as local:
+        assert local.get("/api/ai/firebase-settings", headers={"Origin":"https://other.example"}).status_code == 403
+        response = local.get("/api/ai/firebase-settings")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+        assert "private-test-token" not in local.get("/api/health").text
+
+
 def test_local_rules_flag_changed_beneficiary(monkeypatch):
     monkeypatch.delenv("NEBIUS_API_KEY", raising=False)
     payload = {
@@ -59,13 +74,14 @@ def test_bad_analysis_input_rejected(monkeypatch, field, value):
 def test_paypal_requires_server_side_credentials(monkeypatch):
     monkeypatch.delenv("PAYPAL_CLIENT_ID", raising=False)
     monkeypatch.delenv("PAYPAL_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("PAYPAL_ORDER_SIGNING_SECRET", raising=False)
     request = {"reference":"PL-001", "amount":"12.40", "description":"Fictional invoice"}
     response = client.post("/api/paypal/orders", json=request)
     assert response.status_code == 503
     assert "sandbox" in response.json()["detail"].lower()
     monkeypatch.setenv("ENABLE_SANDBOX_CAPTURE", "true")
-    response = client.post("/api/paypal/orders/FAKE-ORDER/capture")
-    assert response.status_code == 501
+    response = client.post("/api/paypal/orders/FAKEORDER/capture", json={"receipt":"invalid"})
+    assert response.status_code == 503
 
 
 @pytest.mark.parametrize("amount", ["0.001", "-1.00", "1e5", "abc"])
@@ -87,7 +103,7 @@ def test_rules_do_not_claim_identity_verified():
 
 def test_capture_opt_in_required(monkeypatch):
     monkeypatch.delenv("ENABLE_SANDBOX_CAPTURE", raising=False)
-    result = client.post("/api/paypal/orders/FAKE-ORDER/capture")
+    result = client.post("/api/paypal/orders/FAKEORDER/capture", json={"receipt":"invalid"})
     assert result.status_code == 403
 
 

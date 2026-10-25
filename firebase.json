@@ -1,0 +1,17 @@
+{
+  "firestore": {
+    "database": "pazalink",
+    "location": "africa-south1",
+    "edition": "enterprise",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "auth": {
+    "providers": {
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "PazaLink Demo",
+        "supportEmail": "chrisndirangu54@gmail.com"
+      }
+    }
+  }
+}

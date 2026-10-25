@@ -31,7 +31,9 @@ def firebase_app():
 
 
 def store():
-    return firestore.client(app=firebase_app())
+    return firestore.client(
+        app=firebase_app(), database_id=os.getenv("FIRESTORE_DATABASE_ID", "(default)")
+    )
 
 
 def principal(authorization: str | None = Header(default=None)):
