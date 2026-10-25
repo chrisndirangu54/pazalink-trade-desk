@@ -9,6 +9,8 @@ An AI-assisted payment and reconciliation workspace for East African cross-borde
 - AI review calls Nebius Token Factory using NVIDIA Nemotron when `NEBIUS_API_KEY` is configured. Without it, the backend returns a transparent local rules demo; this fallback is not a model inference.
 - No API keys or personal payment data are included in this repository.
 
+For the complete tested setup and review workflow, see [judging instructions](docs/JUDGES.md). The demonstrated build is on branch `codex/validated-review-demo` (PR #5).
+
 ## Run locally
 
 ```bash
